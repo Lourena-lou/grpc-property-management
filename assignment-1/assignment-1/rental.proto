@@ -1,0 +1,266 @@
+// ============================================================================
+// rental.proto — Contract for the Rental Accommodation System (Question 2).
+//
+// Ministry of Tourism: Hosts manage property listings, Guests browse and book.
+//
+// This file is the SOURCE OF TRUTH. Ballerina generates both the server stub
+// and the client stub from it:
+//
+//   bal grpc --mode service --input rental.proto --output rental_service/
+//   bal grpc --mode client  --input rental.proto --output rental_client/
+//
+// Three RPC styles are used deliberately, as required by the brief:
+//   - Simple (unary) ............ six of the eight operations
+//   - Client-side streaming ..... create_users
+//   - Server-side streaming ..... list_available_properties
+// ============================================================================
+syntax = "proto3";
+
+package rental;
+
+// ----------------------------------------------------------------------------
+// SERVICE
+// ----------------------------------------------------------------------------
+
+service RentalService {
+
+  // --- Host operations ---
+
+  // Registers a new listing. The server assigns and returns a property_id.
+  rpc add_property(AddPropertyRequest) returns (AddPropertyResponse);
+
+  // Updates an existing listing, keyed by property_id.
+  rpc update_property(UpdatePropertyRequest) returns (UpdatePropertyResponse);
+
+  // Deletes a listing. Responds with the new full list of available
+  // properties in that host's region, so the host sees the result immediately.
+  rpc remove_property(RemovePropertyRequest) returns (RemovePropertyResponse);
+
+  // CLIENT-SIDE STREAMING: the client streams many user profiles; the server
+  // replies once, after the stream completes.
+  rpc create_users(stream User) returns (CreateUsersResponse);
+
+  // --- Guest operations ---
+
+  // SERVER-SIDE STREAMING: the server streams matching properties one by one
+  // rather than assembling one large response.
+  rpc list_available_properties(ListAvailableRequest) returns (stream Property);
+
+  // Looks up one property. Returns available=false rather than an error when
+  // the property is missing or not bookable.
+  rpc search_property(SearchPropertyRequest) returns (SearchPropertyResponse);
+
+  // Validates dates and places a request in the guest's temporary cart.
+  // Nothing is committed at this stage.
+  rpc book_property(BookPropertyRequest) returns (BookPropertyResponse);
+
+  // Finalises everything in the cart: re-checks date overlaps, computes the
+  // total cost, and clears the cart.
+  rpc confirm_booking(ConfirmBookingRequest) returns (ConfirmBookingResponse);
+}
+
+// ----------------------------------------------------------------------------
+// ENUMS
+// proto3 requires the zero value to be the default, hence the UNSPECIFIED
+// entries — they catch fields that were never set.
+// ----------------------------------------------------------------------------
+
+enum PropertyStatus {
+  PROPERTY_STATUS_UNSPECIFIED = 0;
+  AVAILABLE = 1;
+  UNAVAILABLE = 2;
+  MAINTENANCE = 3;
+}
+
+enum PropertyType {
+  PROPERTY_TYPE_UNSPECIFIED = 0;
+  APARTMENT = 1;
+  HOUSE = 2;
+  GUESTHOUSE = 3;
+  LODGE = 4;
+  ROOM = 5;
+}
+
+enum UserRole {
+  USER_ROLE_UNSPECIFIED = 0;
+  HOST = 1;
+  GUEST = 2;
+}
+
+// ----------------------------------------------------------------------------
+// CORE MESSAGES
+// ----------------------------------------------------------------------------
+
+// A person using the system, in either role.
+message User {
+  string user_id = 1;
+  string name = 2;
+  string email = 3;
+  UserRole role = 4;
+  // Region the host operates in. Ignored for guests.
+  string region = 5;
+}
+
+// An accommodation listing.
+message Property {
+  string property_id = 1;
+  string host_id = 2;
+  string name = 3;
+  string location = 4;
+  // Broader area used by remove_property to scope its response.
+  string region = 5;
+  PropertyType property_type = 6;
+  double price_per_night = 7;
+  PropertyStatus status = 8;
+  string description = 9;
+}
+
+// A confirmed reservation. Held server-side to detect date overlaps.
+message Booking {
+  string booking_id = 1;
+  string property_id = 2;
+  string guest_id = 3;
+  // ISO "YYYY-MM-DD". Zero-padded ISO dates compare correctly as strings,
+  // which is what makes the overlap check straightforward.
+  string check_in = 4;
+  string check_out = 5;
+  int32 nights = 6;
+  double total_cost = 7;
+}
+
+// ----------------------------------------------------------------------------
+// add_property
+// ----------------------------------------------------------------------------
+
+message AddPropertyRequest {
+  string host_id = 1;
+  string name = 2;
+  string location = 3;
+  string region = 4;
+  PropertyType property_type = 5;
+  double price_per_night = 6;
+  PropertyStatus status = 7;
+  string description = 8;
+}
+
+message AddPropertyResponse {
+  string property_id = 1;
+  bool success = 2;
+  string message = 3;
+}
+
+// ----------------------------------------------------------------------------
+// update_property
+// ----------------------------------------------------------------------------
+
+message UpdatePropertyRequest {
+  string property_id = 1;
+  string host_id = 2;
+  // Only non-empty / non-zero fields are applied, so a host can change the
+  // price without resending the whole listing.
+  string name = 3;
+  string location = 4;
+  double price_per_night = 5;
+  PropertyStatus status = 6;
+  string description = 7;
+}
+
+message UpdatePropertyResponse {
+  bool success = 1;
+  string message = 2;
+  Property property = 3;
+}
+
+// ----------------------------------------------------------------------------
+// remove_property
+// ----------------------------------------------------------------------------
+
+message RemovePropertyRequest {
+  string property_id = 1;
+  string host_id = 2;
+}
+
+message RemovePropertyResponse {
+  bool success = 1;
+  string message = 2;
+  // The brief requires the new full list for that host's region.
+  repeated Property remaining_properties = 3;
+}
+
+// ----------------------------------------------------------------------------
+// create_users  (client-side streaming)
+// ----------------------------------------------------------------------------
+
+message CreateUsersResponse {
+  int32 created_count = 1;
+  int32 failed_count = 2;
+  bool success = 3;
+  string message = 4;
+  // Ids that could not be created, e.g. duplicates.
+  repeated string failed_user_ids = 5;
+}
+
+// ----------------------------------------------------------------------------
+// list_available_properties  (server-side streaming)
+// ----------------------------------------------------------------------------
+
+message ListAvailableRequest {
+  // All filters optional. Empty string / zero means "no filter on this field".
+  string location = 1;
+  double min_price = 2;
+  double max_price = 3;
+}
+
+// ----------------------------------------------------------------------------
+// search_property
+// ----------------------------------------------------------------------------
+
+message SearchPropertyRequest {
+  string property_id = 1;
+}
+
+message SearchPropertyResponse {
+  // False when the property does not exist or is not bookable. The brief asks
+  // for a "Not Available" status rather than a transport-level error.
+  bool available = 1;
+  string status_message = 2;
+  Property property = 3;
+}
+
+// ----------------------------------------------------------------------------
+// book_property  (adds to the temporary cart)
+// ----------------------------------------------------------------------------
+
+message BookPropertyRequest {
+  string guest_id = 1;
+  string property_id = 2;
+  string check_in = 3;
+  string check_out = 4;
+}
+
+message BookPropertyResponse {
+  bool success = 1;
+  string message = 2;
+  // Estimate only. The binding figure is computed at confirm_booking.
+  int32 nights = 3;
+  double estimated_cost = 4;
+  // How many items are now sitting in this guest's cart.
+  int32 cart_size = 5;
+}
+
+// ----------------------------------------------------------------------------
+// confirm_booking  (commits the cart)
+// ----------------------------------------------------------------------------
+
+message ConfirmBookingRequest {
+  string guest_id = 1;
+}
+
+message ConfirmBookingResponse {
+  bool success = 1;
+  string message = 2;
+  repeated Booking confirmed_bookings = 3;
+  // Requests that failed the final overlap re-check.
+  repeated string rejected_reasons = 4;
+  double grand_total = 5;
+}
