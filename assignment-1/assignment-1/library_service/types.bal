@@ -1,3 +1,4 @@
+import ballerina/http; 
 // ----------------------------------------------------------------------------
 // ENUMS
 // The brief names exactly four asset states.
@@ -120,3 +121,68 @@ public type Institution record {|
     readonly string institutionId;
     string name;
 |};
+// ----------------------------------------------------------------------------
+// UPDATE PAYLOAD
+// A PUT must not let the caller rewrite the primary key, so this is Asset
+// WITHOUT assetTag.
+// ----------------------------------------------------------------------------
+
+# Mutable fields of an asset, used as the body of a PUT. Deliberately excludes
+# `assetTag` so an update cannot change the primary key.
+#
+# + name - Replacement resource name
+# + description - Replacement description
+# + institution - Replacement owning institution
+# + site - Replacement campus or site
+# + status - Replacement availability state
+# + dateAcquired - Replacement acquisition date, ISO "YYYY-MM-DD"
+public type AssetUpdate record {|
+    string name;
+    string description;
+    string institution;
+    string site;
+    AssetStatus status;
+    string dateAcquired;
+|};
+
+// ----------------------------------------------------------------------------
+// HTTP ERROR RESPONSES
+//
+// This is the idiomatic Ballerina pattern from the official REST guide:
+// `*http:NotFound` includes the http:NotFound type, which makes this record a
+// SUBTYPE of it. Returning one of these from a resource function sets the HTTP
+// status code automatically.
+// ----------------------------------------------------------------------------
+
+# Standard error body so every failure looks the same to the client.
+#
+# + errmsg - Human-readable explanation of what went wrong
+public type ErrorMsg record {|
+    string errmsg;
+|};
+
+# 404 — the requested asset, component, schedule, or work order does not exist.
+#
+# + body - Explanation of which resource was not found
+public type NotFoundError record {|
+    *http:NotFound;
+    ErrorMsg body;
+|};
+
+# 409 — duplicate `assetTag`, or an operation conflicting with current state
+# such as loaning an asset that is already `LOANED_OUT`.
+#
+# + body - Explanation of the conflict
+public type ConflictError record {|
+    *http:Conflict;
+    ErrorMsg body;
+|};
+
+# 400 — the request is malformed or violates a business rule.
+#
+# + body - Explanation of why the request was rejected
+public type BadRequestError record {|
+    *http:BadRequest;
+    ErrorMsg body;
+|};
+
