@@ -18,7 +18,9 @@
 // Reference: https://ballerina.io/learn/by-example/isolated-variables/
 // ============================================================================
 import ballerina/time;
+isolated table<Asset> key(assetTag) assetTable = table [];
 
+isolated table<Institution> key(institutionId) institutionTable = table [];
 // ----------------------------------------------------------------------------
 // DATE HELPER
 // Dates are ISO "YYYY-MM-DD" strings. Because ISO dates are zero-padded and
@@ -32,4 +34,75 @@ import ballerina/time;
 public isolated function today() returns string {
     string timestamp = time:utcToString(time:utcNow());
     return timestamp.substring(0, 10);
+}
+public isolated function getAllAssets() returns Asset[] {
+    lock {
+        return assetTable.toArray().clone();
+    }
+}
+
+public isolated function getAsset(string assetTag) returns Asset? {
+    lock {
+        Asset? asset = assetTable[assetTag];
+        return asset.clone();
+    }
+}
+
+public isolated function assetExists(string assetTag) returns boolean {
+    lock {
+        return assetTable.hasKey(assetTag);
+    }
+}
+
+public isolated function findAssets(string? institution, string? site) returns Asset[] {
+    lock {
+        Asset[] matches = from Asset asset in assetTable
+            where institution is () || asset.institution == institution
+            where site is () || asset.site == site
+            select asset;
+        return matches.clone();
+    }
+}
+
+public isolated function findAssetsByStatus(AssetStatus status) returns Asset[] {
+    lock {
+        Asset[] matches = from Asset asset in assetTable
+            where asset.status == status
+            select asset;
+        return matches.clone();
+    }
+}
+
+public isolated function findOverdueAssets() returns Asset[] {
+    string currentDate = today();
+    lock {
+        Asset[] matches = from Asset asset in assetTable
+            where (from Schedule s in asset.schedules
+                where s.dueDate < currentDate
+                limit 1
+                select s).length() > 0
+            select asset;
+        return matches.clone();
+    }
+}
+
+public isolated function addAsset(Asset asset) returns Asset|error {
+    lock {
+        Asset stored = asset.clone();
+        if assetTable.hasKey(stored.assetTag) {
+            return error(string `Asset '${stored.assetTag}' already exists`);
+        }
+        assetTable.add(stored);
+        return stored.clone();
+    }
+}
+
+public isolated function deleteAsset(string assetTag) returns Asset|error {
+    lock {
+        Asset? removed = assetTable.removeIfHasKey(assetTag);
+        if removed is () {
+            return error(string `Asset '${assetTag}' not found`);
+        }
+        return removed.clone();
+    }
 }
