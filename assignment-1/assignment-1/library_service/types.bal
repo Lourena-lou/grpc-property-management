@@ -185,4 +185,3 @@ public type BadRequestError record {|
     *http:BadRequest;
     ErrorMsg body;
 |};
-
