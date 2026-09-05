@@ -1,0 +1,179 @@
+import ballerina/time;
+
+
+public type CartEntry record {|
+    string propertyId;
+    string checkIn;
+    string checkOut;
+    int nights;
+|};
+
+
+# All registered accommodation listings, keyed by property id.
+isolated map<Property> propertyTable = {};
+
+# All registered users, hosts and guests alike, keyed by user id.
+isolated map<User> userTable = {};
+
+# All confirmed bookings, keyed by booking id. This is what the overlap check
+# consults, so only committed reservations belong here.
+isolated map<Booking> bookingTable = {};
+
+# Pending requests per guest. Cleared when a booking is confirmed.
+isolated map<CartEntry[]> guestCarts = {};
+
+# Monotonic counters behind the generated ids.
+isolated int propertyCounter = 0;
+isolated int bookingCounter = 0;
+
+
+isolated function nextPropertyId() returns string {
+    lock {
+        propertyCounter += 1;
+        return string `PROP-${propertyCounter.toString().padZero(3)}`;
+    }
+}
+
+
+isolated function nextBookingId() returns string {
+    lock {
+        bookingCounter += 1;
+        return string `BKG-${bookingCounter.toString().padZero(3)}`;
+    }
+}
+
+public isolated function addProperty(AddPropertyRequest request)
+        returns Property|error {
+    if request.host_id == "" {
+        return error("host_id is required");
+    }
+    if request.name == "" {
+        return error("Property name is required");
+    }
+    if request.price_per_night <= 0.0 {
+        return error("Price per night must be greater than zero");
+    }
+
+    string propertyId = nextPropertyId();
+
+    lock {
+        AddPropertyRequest r = request.clone();
+        Property property = {
+            property_id: propertyId,
+            host_id: r.host_id,
+            name: r.name,
+            location: r.location,
+            region: r.region,
+            property_type: r.property_type,
+            price_per_night: r.price_per_night,
+            // An unset status defaults to AVAILABLE rather than UNSPECIFIED.
+            status: r.status == PROPERTY_STATUS_UNSPECIFIED ? AVAILABLE : r.status,
+            description: r.description
+        };
+        propertyTable[property.property_id] = property;
+        return property.clone();
+    }
+}
+
+# Looks up a property.
+#
+# + propertyId - The id to look up
+# + return - A copy of the property, or `()` if unknown
+public isolated function getProperty(string propertyId) returns Property? {
+    lock {
+        Property? property = propertyTable[propertyId];
+        return property.clone();
+    }
+}
+
+# Applies partial updates to a listing. Empty and zero fields are left alone,
+# so a host can change the price without resending the whole listing.
+#
+# + request - Fields to change, keyed by property id
+# + return - A copy of the updated property, or an error if unknown or not owned
+public isolated function updateProperty(UpdatePropertyRequest request)
+        returns Property|error {
+    lock {
+        UpdatePropertyRequest r = request.clone();
+        Property? existing = propertyTable[r.property_id];
+        if existing is () {
+            return error(string `Property '${r.property_id}' not found`);
+        }
+        // A host may only edit their own listing.
+        if r.host_id != "" && existing.host_id != r.host_id {
+            return error(string `Property '${r.property_id}' belongs to another host`);
+        }
+        if r.name != "" {
+            existing.name = r.name;
+        }
+        if r.location != "" {
+            existing.location = r.location;
+        }
+        if r.price_per_night > 0.0 {
+            existing.price_per_night = r.price_per_night;
+        }
+        if r.status != PROPERTY_STATUS_UNSPECIFIED {
+            existing.status = r.status;
+        }
+        if r.description != "" {
+            existing.description = r.description;
+        }
+        return existing.clone();
+    }
+}
+
+# Deletes a listing.
+#
+# + propertyId - The listing to remove
+# + hostId - Owner making the request; blank skips the ownership check
+# + return - A copy of the removed property, or an error if unknown or not owned
+public isolated function removeProperty(string propertyId, string hostId)
+        returns Property|error {
+    lock {
+        Property? existing = propertyTable[propertyId];
+        if existing is () {
+            return error(string `Property '${propertyId}' not found`);
+        }
+        if hostId != "" && existing.host_id != hostId {
+            return error(string `Property '${propertyId}' belongs to another host`);
+        }
+        Property? removed = propertyTable.removeIfHasKey(propertyId);
+        if removed is () {
+            return error(string `Property '${propertyId}' not found`);
+        }
+        return removed.clone();
+    }
+}
+
+# Lists available properties in one region — the response to remove_property.
+#
+# + region - Region to filter by; blank returns every available property
+# + return - Copies of the matching properties
+public isolated function availableInRegion(string region) returns Property[] {
+    lock {
+        Property[] matches = from Property p in propertyTable
+            where p.status == AVAILABLE
+            where region == "" || p.region == region
+            select p;
+        return matches.clone();
+    }
+}
+
+# Lists available properties matching optional location and price filters.
+#
+# + location - Location to match, or blank for any
+# + minPrice - Lower price bound, or zero for no lower bound
+# + maxPrice - Upper price bound, or zero for no upper bound
+# + return - Copies of the matching properties
+public isolated function findAvailableProperties(string location, float minPrice,
+        float maxPrice) returns Property[] {
+    lock {
+        Property[] matches = from Property p in propertyTable
+            where p.status == AVAILABLE
+            where location == "" || p.location == location
+            where minPrice <= 0.0 || p.price_per_night >= minPrice
+            where maxPrice <= 0.0 || p.price_per_night <= maxPrice
+            select p;
+        return matches.clone();
+    }
+}
