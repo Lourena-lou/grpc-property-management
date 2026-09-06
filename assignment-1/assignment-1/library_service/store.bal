@@ -206,3 +206,72 @@ public isolated function removeInstitution(string institutionId)
         return removed.clone();
     }
 }
+public isolated function seedData() {
+    Institution[] institutions = [
+        {institutionId: "NUST", name: "Namibia University of Science and Technology"},
+        {institutionId: "UNAM", name: "University of Namibia"}
+    ];
+    foreach Institution i in institutions {
+        Institution|error result = addInstitution(i);
+        if result is error {
+        }
+    }
+
+    Asset[] assets = [
+        {
+            assetTag: "NUST-LIB-3DP-001",
+            name: "Pro-Series 3D Printer",
+            description: "High-precision laboratory printer for prototype development.",
+            institution: "Namibia University of Science and Technology",
+            site: "Main Campus - Innovation Lab",
+            status: AVAILABLE,
+            dateAcquired: "2024-03-10",
+            components: [
+                {
+                    compId: "C101",
+                    name: "High-Torque Stepper Motor",
+                    description: "Main motor for X-axis movement."
+                }
+            ],
+            schedules: [
+                {
+                    scheduleId: "SCH-882",
+                    'type: MAINTENANCE,
+                    dueDate: "2026-06-01",
+                    description: "Quarterly calibration and nozzle cleaning."
+                }
+            ],
+            workOrders: [
+                {
+                    orderId: "WO-554",
+                    status: OPEN,
+                    description: "Nozzle heat-bed failure",
+                    tasks: [{taskId: "T1", description: "Check thermal sensor connectivity."}]
+                }
+            ]
+        },
+        {
+            assetTag: "NUST-LIB-LAP-014",
+            name: "Dell Latitude Laptop",
+            description: "Student loan laptop.",
+            institution: "Namibia University of Science and Technology",
+            site: "Main Campus - Library",
+            status: AVAILABLE,
+            dateAcquired: "2025-01-20"
+        },
+        {
+            assetTag: "UNAM-RM-MTG-002",
+            name: "Meeting Room B",
+            description: "Seats 12, projector and whiteboard.",
+            institution: "University of Namibia",
+            site: "Windhoek Campus - Block C",
+            status: AVAILABLE,
+            dateAcquired: "2023-08-01"
+        }
+    ];
+    foreach Asset a in assets {
+        Asset|error result = addAsset(a);
+        if result is error {
+        }
+    }
+}
