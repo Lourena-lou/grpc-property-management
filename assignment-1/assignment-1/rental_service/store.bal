@@ -177,3 +177,173 @@ public isolated function findAvailableProperties(string location, float minPrice
         return matches.clone();
     }
 }
+# + propertyId - Property to check
+# + checkIn - Proposed arrival date
+# + checkOut - Proposed departure date
+# + return - `true` if no confirmed booking overlaps the range
+public isolated function isFreeForDates(string propertyId, string checkIn,
+        string checkOut) returns boolean {
+    lock {
+        Booking[] clashes = from Booking b in bookingTable
+            where b.property_id == propertyId
+            where datesOverlap(checkIn, checkOut, b.check_in, b.check_out)
+            select b;
+        return clashes.length() == 0;
+    }
+}
+
+// ----------------------------------------------------------------------------
+// CART
+// ----------------------------------------------------------------------------
+
+# Adds a validated request to a guest's cart. Nothing is committed here.
+#
+# + guestId - Guest making the request
+# + entry - The pending request
+# + return - The new size of the guest's cart
+public isolated function addToCart(string guestId, CartEntry entry) returns int {
+    lock {
+        CartEntry[] cart = guestCarts.hasKey(guestId)
+            ? <CartEntry[]>guestCarts[guestId]
+            : [];
+        cart.push(entry.clone());
+        guestCarts[guestId] = cart;
+        return cart.length();
+    }
+}
+
+# Reads a guest's cart without emptying it.
+#
+# + guestId - Guest whose cart to read
+# + return - Copies of the pending entries
+public isolated function getCart(string guestId) returns CartEntry[] {
+    lock {
+        CartEntry[]? cart = guestCarts[guestId];
+        if cart is () {
+            return [];
+        }
+        return cart.clone();
+    }
+}
+
+# Empties a guest's cart, called once a confirmation completes.
+#
+# + guestId - Guest whose cart to clear
+public isolated function clearCart(string guestId) {
+    lock {
+        _ = guestCarts.removeIfHasKey(guestId);
+    }
+}
+
+// ----------------------------------------------------------------------------
+// BOOKINGS
+// ----------------------------------------------------------------------------
+
+# Commits a booking, re-checking availability inside the same lock.
+#
+# The check and the write MUST share one lock. Splitting them would let two
+# guests both see a free property and both book the same dates.
+#
+# + propertyId - Property being booked
+# + guestId - Guest making the booking
+# + checkIn - Arrival date
+# + checkOut - Departure date
+# + nights - Number of nights
+# + pricePerNight - Nightly rate at the time of confirmation
+# + return - A copy of the confirmed booking, or an error if the dates clash
+public isolated function commitBooking(string propertyId, string guestId,
+        string checkIn, string checkOut, int nights, float pricePerNight)
+        returns Booking|error {
+    string bookingId = nextBookingId();
+    lock {
+        // Re-check inside the lock, not before it.
+        Booking[] clashes = from Booking b in bookingTable
+            where b.property_id == propertyId
+            where datesOverlap(checkIn, checkOut, b.check_in, b.check_out)
+            select b;
+        if clashes.length() > 0 {
+            return error(string `Property '${propertyId}' is already booked for ${checkIn} to ${checkOut}`);
+        }
+
+        Booking booking = {
+            booking_id: bookingId,
+            property_id: propertyId,
+            guest_id: guestId,
+            check_in: checkIn,
+            check_out: checkOut,
+            nights: nights,
+            total_cost: pricePerNight * <float>nights
+        };
+        bookingTable[booking.booking_id] = booking;
+        return booking.clone();
+    }
+}
+
+// ----------------------------------------------------------------------------
+// SEED DATA
+// ----------------------------------------------------------------------------
+
+# Loads sample hosts, guests, and listings so the client has something to
+# work with on a fresh start.
+public isolated function seedData() {
+    User[] users = [
+        {user_id: "H001", name: "Maria Shipanga", email: "maria@host.na", role: HOST, region: "Khomas"},
+        {user_id: "H002", name: "Petrus Amupolo", email: "petrus@host.na", role: HOST, region: "Erongo"},
+        {user_id: "G001", name: "Anna Nghipandulwa", email: "anna@guest.na", role: GUEST, region: ""}
+    ];
+    foreach User u in users {
+        User|error result = addUser(u);
+        if result is error {
+            // Already seeded; ignore.
+        }
+    }
+
+    AddPropertyRequest[] properties = [
+        {
+            host_id: "H001",
+            name: "Windhoek City Apartment",
+            location: "Windhoek",
+            region: "Khomas",
+            property_type: APARTMENT,
+            price_per_night: 850.0,
+            status: AVAILABLE,
+            description: "Two-bedroom apartment near the CBD."
+        },
+        {
+            host_id: "H001",
+            name: "Auas Hills Guesthouse",
+            location: "Windhoek",
+            region: "Khomas",
+            property_type: GUESTHOUSE,
+            price_per_night: 1200.0,
+            status: AVAILABLE,
+            description: "Quiet guesthouse with mountain views."
+        },
+        {
+            host_id: "H002",
+            name: "Swakopmund Beach House",
+            location: "Swakopmund",
+            region: "Erongo",
+            property_type: HOUSE,
+            price_per_night: 1750.0,
+            status: AVAILABLE,
+            description: "Four sleeper, two minutes from the beach."
+        },
+        {
+            host_id: "H002",
+            name: "Desert Lodge Room",
+            location: "Walvis Bay",
+            region: "Erongo",
+            property_type: ROOM,
+            price_per_night: 600.0,
+            status: MAINTENANCE,
+            description: "Single room, currently closed for refurbishment."
+        }
+    ];
+    foreach AddPropertyRequest p in properties {
+        Property|error result = addProperty(p);
+        if result is error {
+            // Already seeded; ignore.
+        }
+    }
+}
