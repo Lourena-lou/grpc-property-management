@@ -45,4 +45,52 @@ service "RentalService" on ep {
             message: string `Property '${created.name}' registered successfully`
         };
     }
+    remote function update_property(UpdatePropertyRequest value)
+        returns UpdatePropertyResponse|error {
+
+    Property|error updated = updateProperty(value);
+
+    if updated is error {
+        return {
+            success: false,
+            message: updated.message(),
+            property: {}
+        };
+    }
+
+    return {
+        success: true,
+        message: string `Property '${updated.property_id}' updated`,
+        property: updated
+    };
 }
+
+remote function search_property(SearchPropertyRequest value)
+        returns SearchPropertyResponse|error {
+
+    Property? property = getProperty(value.property_id);
+
+    if property is () {
+        return {
+            available: false,
+            status_message: string `Not Available: no property with id '${value.property_id}'`,
+            property: {}
+        };
+    }
+
+    if property.status != AVAILABLE {
+        return {
+            available: false,
+            status_message: string `Not Available: '${property.name}' is currently ${property.status}`,
+            property: property
+        };
+    }
+
+    return {
+        available: true,
+        status_message: "Available",
+        property: property
+    };
+}
+}
+
