@@ -106,3 +106,103 @@ public isolated function deleteAsset(string assetTag) returns Asset|error {
         return removed.clone();
     }
 }
+public isolated function updateAsset(string assetTag, AssetUpdate update)
+        returns Asset|error {
+    lock {
+        Asset? existing = assetTable[assetTag];
+        if existing is () {
+            return error(string `Asset '${assetTag}' not found`);
+        }
+        AssetUpdate u = update.clone();
+        existing.name = u.name;
+        existing.description = u.description;
+        existing.institution = u.institution;
+        existing.site = u.site;
+        existing.status = u.status;
+        existing.dateAcquired = u.dateAcquired;
+        return existing.clone();
+    }
+}
+
+public isolated function loanAsset(string assetTag, boolean isSpace = false)
+        returns Asset|error {
+    lock {
+        Asset? asset = assetTable[assetTag];
+        if asset is () {
+            return error(string `Asset '${assetTag}' not found`);
+        }
+        if asset.status != AVAILABLE {
+            return error(string `Asset '${assetTag}' is not available (currently ${asset.status})`);
+        }
+        asset.status = isSpace ? OCCUPIED : LOANED_OUT;
+        return asset.clone();
+    }
+}
+
+public isolated function returnAsset(string assetTag) returns Asset|error {
+    lock {
+        Asset? asset = assetTable[assetTag];
+        if asset is () {
+            return error(string `Asset '${assetTag}' not found`);
+        }
+        if asset.status != LOANED_OUT && asset.status != OCCUPIED {
+            return error(string `Asset '${assetTag}' is not currently loaned out`);
+        }
+        asset.status = AVAILABLE;
+        return asset.clone();
+    }
+}
+
+public isolated function getAllInstitutions() returns Institution[] {
+    lock {
+        return institutionTable.toArray().clone();
+    }
+}
+
+public isolated function institutionExists(string institutionId) returns boolean {
+    lock {
+        return institutionTable.hasKey(institutionId);
+    }
+}
+
+public isolated function addInstitution(Institution institution)
+        returns Institution|error {
+    lock {
+        Institution stored = institution.clone();
+        if institutionTable.hasKey(stored.institutionId) {
+            return error(string `Institution '${stored.institutionId}' already exists`);
+        }
+        institutionTable.add(stored);
+        return stored.clone();
+    }
+}
+
+public isolated function removeInstitution(string institutionId)
+        returns Institution|error {
+    string institutionName;
+    lock {
+        Institution? institution = institutionTable[institutionId];
+        if institution is () {
+            return error(string `Institution '${institutionId}' not found`);
+        }
+        institutionName = institution.name;
+    }
+
+    int ownedCount;
+    lock {
+        ownedCount = (from Asset a in assetTable
+            where a.institution == institutionName
+            select a).length();
+    }
+    if ownedCount > 0 {
+        return error(string `Cannot remove '${institutionName}': ${ownedCount} asset(s) still assigned`);
+    }
+
+    lock {
+        Institution? removed = institutionTable.removeIfHasKey(institutionId);
+        if removed is () {
+            return error(string `Institution '${institutionId}' not found`);
+        }
+        return removed.clone();
+    }
+}
