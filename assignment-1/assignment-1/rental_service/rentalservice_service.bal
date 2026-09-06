@@ -92,5 +92,57 @@ remote function search_property(SearchPropertyRequest value)
         property: property
     };
 }
+
+remote function remove_property(RemovePropertyRequest value)
+        returns RemovePropertyResponse|error {
+
+    Property? target = getProperty(value.property_id);
+    string region = target is Property ? target.region : "";
+
+    Property|error removed = removeProperty(value.property_id, value.host_id);
+
+    if removed is error {
+        return {
+            success: false,
+            message: removed.message(),
+            remaining_properties: []
+        };
+    }
+
+    return {
+        success: true,
+        message: string `Property '${removed.property_id}' removed`,
+        remaining_properties: availableInRegion(region)
+    };
+}
+
+remote function create_users(stream<User, grpc:Error?> clientStream)
+        returns CreateUsersResponse|error {
+
+    int created = 0;
+    string[] failed = [];
+
+    check clientStream.forEach(function(User user) {
+        User|error result = addUser(user);
+
+        if result is error {
+            failed.push(user.user_id == "" ? "(missing id)" : user.user_id);
+        } else {
+            created += 1;
+        }
+    });
+
+    log:printInfo(string `create_users: ${created} created, ${failed.length()} failed`);
+
+    return {
+        created_count: created,
+        failed_count: failed.length(),
+        success: failed.length() == 0,
+        message: failed.length() == 0
+            ? string `All ${created} user(s) registered successfully`
+            : string `${created} created, ${failed.length()} rejected`,
+        failed_user_ids: failed
+    };
+}
 }
 
