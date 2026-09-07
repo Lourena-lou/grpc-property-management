@@ -8,6 +8,13 @@ import ballerina/log;
 isolated function notFound(string message) returns NotFoundError =>
     {body: {errmsg: message}};
 
+# Builds a 409 response.
+#
+# + message - Explanation of the conflict
+# + return - A `ConflictError` carrying the message
+isolated function conflictError(string message) returns ConflictError =>
+    {body: {errmsg: message}};
+
 # Builds a 400 response.
 #
 # + message - Explanation of why the request was rejected
@@ -23,6 +30,10 @@ service /library on new http:Listener(9090) {
         seedData();
         log:printInfo("Library service started on port 9090 with seed data loaded");
     }
+
+    // ------------------------------------------------------------------
+    // ASSETS — collection level (read + filters, create)
+    // ------------------------------------------------------------------
 
     # Lists assets, optionally filtered. All three filters are independent and
     # combinable; omitting them all returns every asset (the "global view").
@@ -55,10 +66,30 @@ service /library on new http:Listener(9090) {
         return findAssets(institution, site);
     }
 
+    # Creates a new asset.
+    #
+    # A `post` resource returns 201 Created by default — no need to say so.
+    # The `asset` parameter is bound from the JSON request body automatically;
+    # a malformed body is rejected by the framework before this code runs.
+    #
+    # + asset - The asset to create, from the request body
+    # + return - The created asset, or 409 if the tag is already in use
+    isolated resource function post assets(Asset asset) returns Asset|ConflictError {
+        Asset|error result = addAsset(asset);
+        if result is error {
+            return conflictError(result.message());
+        }
+        return result;
+    }
+
     # Lists assets with at least one schedule whose due date has passed.
     #
     # + return - Assets with one or more overdue schedules
     isolated resource function get assets/overdue() returns Asset[] => findOverdueAssets();
+
+    // ------------------------------------------------------------------
+    // ASSETS — single item (read, update, delete)
+    // ------------------------------------------------------------------
 
     # Fetches one asset by tag.
     #
@@ -70,5 +101,70 @@ service /library on new http:Listener(9090) {
             return notFound(string `Asset '${assetTag}' not found`);
         }
         return asset;
+    }
+
+    # Replaces the mutable fields of an asset. The tag itself cannot change —
+    # `AssetUpdate` has no `assetTag` field, so the compiler enforces that.
+    #
+    # + assetTag - Tag from the URL path
+    # + update - Replacement field values, from the request body
+    # + return - The updated asset, or 404 if unknown
+    isolated resource function put assets/[string assetTag](AssetUpdate update)
+            returns Asset|NotFoundError {
+        Asset|error result = updateAsset(assetTag, update);
+        if result is error {
+            return notFound(result.message());
+        }
+        return result;
+    }
+
+    # Deletes an asset.
+    #
+    # + assetTag - Tag from the URL path
+    # + return - The deleted asset, or 404 if unknown
+    isolated resource function delete assets/[string assetTag]() returns Asset|NotFoundError {
+        Asset|error result = deleteAsset(assetTag);
+        if result is error {
+            return notFound(result.message());
+        }
+        return result;
+    }
+
+    // ------------------------------------------------------------------
+    // INSTITUTIONS
+    // ------------------------------------------------------------------
+
+    # Lists every registered institution.
+    #
+    # + return - All institutions
+    isolated resource function get institutions() returns Institution[] => getAllInstitutions();
+
+    # Registers a new institution.
+    #
+    # + institution - The institution to add, from the request body
+    # + return - The created institution, or 409 if the id is already in use
+    isolated resource function post institutions(Institution institution)
+            returns Institution|ConflictError {
+        Institution|error result = addInstitution(institution);
+        if result is error {
+            return conflictError(result.message());
+        }
+        return result;
+    }
+
+    # Removes an institution. Fails if assets are still assigned to it.
+    #
+    # + institutionId - Institution code from the URL path
+    # + return - The removed institution, 404 if unknown, or 409 if still in use
+    isolated resource function delete institutions/[string institutionId]()
+            returns Institution|NotFoundError|ConflictError {
+        Institution|error result = removeInstitution(institutionId);
+        if result is error {
+            if !institutionExists(institutionId) {
+                return notFound(result.message());
+            }
+            return conflictError(result.message());
+        }
+        return result;
     }
 }
