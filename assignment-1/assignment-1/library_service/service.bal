@@ -296,4 +296,116 @@ service /library on new http:Listener(9090) {
         }
         return result;
     }
+
+    // ------------------------------------------------------------------
+    // WORK ORDERS
+    // ------------------------------------------------------------------
+
+    # Opens a work order against a faulty asset.
+    #
+    # + assetTag - Tag from the URL path
+    # + workOrder - The work order to open, from the request body
+    # + return - The created work order, 404 if the asset is unknown, 409 if the id is taken
+    isolated resource function post assets/[string assetTag]/workorders(WorkOrder workOrder)
+            returns WorkOrder|NotFoundError|ConflictError {
+        WorkOrder|error result = addWorkOrder(assetTag, workOrder);
+        if result is error {
+            if !assetExists(assetTag) {
+                return notFound(result.message());
+            }
+            return conflictError(result.message());
+        }
+        return result;
+    }
+
+    # Replaces a work order in full, including its task list.
+    #
+    # + assetTag - Tag from the URL path
+    # + orderId - Work order identifier from the URL path
+    # + updated - Replacement work order, from the request body
+    # + return - The updated work order, or 404 if either id is unknown
+    isolated resource function put assets/[string assetTag]/workorders/[string orderId](
+            WorkOrder updated) returns WorkOrder|NotFoundError {
+        WorkOrder|error result = updateWorkOrder(assetTag, orderId, updated);
+        if result is error {
+            return notFound(result.message());
+        }
+        return result;
+    }
+
+    # Moves a work order to a new state — this is how a job gets closed.
+    #
+    # PATCH rather than PUT because it changes one field, not the whole
+    # resource. The new status arrives as a query parameter and is validated
+    # against the enum before use.
+    #
+    # + assetTag - Tag from the URL path
+    # + orderId - Work order identifier from the URL path
+    # + status - Target state: OPEN, IN_PROGRESS, or CLOSED
+    # + return - The updated work order, 404 if unknown, or 400 if status is invalid
+    isolated resource function patch assets/[string assetTag]/workorders/[string orderId](
+            string status) returns WorkOrder|NotFoundError|BadRequestError {
+        if status !is WorkOrderStatus {
+            return badRequest(string `Invalid status '${status}'. ` +
+                "Expected one of: OPEN, IN_PROGRESS, CLOSED");
+        }
+        WorkOrder|error result = setWorkOrderStatus(assetTag, orderId, status);
+        if result is error {
+            return notFound(result.message());
+        }
+        return result;
+    }
+
+    # Removes a work order and every task under it.
+    #
+    # + assetTag - Tag from the URL path
+    # + orderId - Work order identifier from the URL path
+    # + return - The removed work order, or 404 if either id is unknown
+    isolated resource function delete assets/[string assetTag]/workorders/[string orderId]()
+            returns WorkOrder|NotFoundError {
+        WorkOrder|error result = removeWorkOrder(assetTag, orderId);
+        if result is error {
+            return notFound(result.message());
+        }
+        return result;
+    }
+
+    // ------------------------------------------------------------------
+    // TASKS — nested one level inside a work order
+    // ------------------------------------------------------------------
+
+    # Adds a sub-task to a work order, e.g. "replace screen".
+    #
+    # + assetTag - Tag from the URL path
+    # + orderId - Parent work order identifier from the URL path
+    # + task - The task to add, from the request body
+    # + return - The added task, 404 if asset or order is unknown, 409 if the id is taken
+    isolated resource function post assets/[string assetTag]/workorders/[string orderId]/tasks(
+            Task task) returns Task|NotFoundError|ConflictError {
+        Task|error result = addTask(assetTag, orderId, task);
+        if result is error {
+            // "already exists" is the only conflict case; everything else is a
+            // missing asset or missing work order.
+            if result.message().includes("already exists") {
+                return conflictError(result.message());
+            }
+            return notFound(result.message());
+        }
+        return result;
+    }
+
+    # Removes a sub-task from a work order.
+    #
+    # + assetTag - Tag from the URL path
+    # + orderId - Parent work order identifier from the URL path
+    # + taskId - Task identifier from the URL path
+    # + return - The removed task, or 404 if any id is unknown
+    isolated resource function delete assets/[string assetTag]/workorders/[string orderId]/tasks/[string taskId]()
+            returns Task|NotFoundError {
+        Task|error result = removeTask(assetTag, orderId, taskId);
+        if result is error {
+            return notFound(result.message());
+        }
+        return result;
+    }
 }
