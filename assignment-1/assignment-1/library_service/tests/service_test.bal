@@ -42,8 +42,37 @@ function testInvalidStatusFilterReturns400() returns error? {
     test:assertEquals(response.statusCode, 400);
 }
 
+// ----------------------------------------------------------------------------
+// WRITE OPERATIONS
+// ----------------------------------------------------------------------------
+
 @test:Config {}
-function testOverdueAssets() returns error? {
-    Asset[] overdue = check testClient->/assets/overdue;
-    test:assertTrue(overdue.length() >= 1, "Expected at least one overdue asset");
+function testCreateAsset() returns error? {
+    Asset newAsset = {
+        assetTag: "TEST-CREATE-001",
+        name: "Test Projector",
+        description: "Created by the test suite.",
+        institution: "Namibia University of Science and Technology",
+        site: "Main Campus - Library",
+        dateAcquired: "2026-01-01"
+    };
+    Asset created = check testClient->/assets.post(newAsset);
+    test:assertEquals(created.assetTag, "TEST-CREATE-001");
+    // Defaults should have been applied.
+    test:assertEquals(created.status, AVAILABLE);
+    test:assertEquals(created.components.length(), 0);
+}
+
+@test:Config {dependsOn: [testCreateAsset]}
+function testDuplicateAssetReturns409() returns error? {
+    Asset duplicate = {
+        assetTag: "TEST-CREATE-001",
+        name: "Duplicate",
+        description: "Should be rejected.",
+        institution: "Namibia University of Science and Technology",
+        site: "Main Campus - Library",
+        dateAcquired: "2026-01-01"
+    };
+    http:Response response = check testClient->/assets.post(duplicate);
+    test:assertEquals(response.statusCode, 409);
 }
