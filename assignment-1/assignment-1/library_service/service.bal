@@ -167,4 +167,133 @@ service /library on new http:Listener(9090) {
         }
         return result;
     }
+
+    // ------------------------------------------------------------------
+    // LOANING AND BOOKING
+    // ------------------------------------------------------------------
+
+    # Loans an asset or books a space.
+    #
+    # Two distinct failure modes share one store error, so we disambiguate by
+    # asking whether the asset exists: absent means 404, present means the
+    # request conflicts with the asset's current state, so 409.
+    #
+    # + assetTag - Tag from the URL path
+    # + isSpace - `true` to book a room or lab (becomes OCCUPIED rather than LOANED_OUT)
+    # + return - The updated asset, 404 if unknown, or 409 if not available
+    isolated resource function post assets/[string assetTag]/loan(boolean isSpace = false)
+            returns Asset|NotFoundError|ConflictError {
+        Asset|error result = loanAsset(assetTag, isSpace);
+        if result is error {
+            if !assetExists(assetTag) {
+                return notFound(result.message());
+            }
+            return conflictError(result.message());
+        }
+        return result;
+    }
+
+    # Returns a loaned asset or frees an occupied space.
+    #
+    # `return` is a reserved keyword, so the path segment is written `'return`.
+    # The URL is still plain /library/assets/{tag}/return.
+    #
+    # + assetTag - Tag from the URL path
+    # + return - The updated asset, 404 if unknown, or 409 if not currently out
+    isolated resource function post assets/[string assetTag]/'return()
+            returns Asset|NotFoundError|ConflictError {
+        Asset|error result = returnAsset(assetTag);
+        if result is error {
+            if !assetExists(assetTag) {
+                return notFound(result.message());
+            }
+            return conflictError(result.message());
+        }
+        return result;
+    }
+
+    // ------------------------------------------------------------------
+    // COMPONENTS
+    // ------------------------------------------------------------------
+
+    # Adds a component to an asset.
+    #
+    # + assetTag - Tag from the URL path
+    # + component - The component to add, from the request body
+    # + return - The added component, 404 if the asset is unknown, 409 if the id is taken
+    isolated resource function post assets/[string assetTag]/components(Component component)
+            returns Component|NotFoundError|ConflictError {
+        Component|error result = addComponent(assetTag, component);
+        if result is error {
+            if !assetExists(assetTag) {
+                return notFound(result.message());
+            }
+            return conflictError(result.message());
+        }
+        return result;
+    }
+
+    # Removes a component from an asset.
+    #
+    # + assetTag - Tag from the URL path
+    # + compId - Component identifier from the URL path
+    # + return - The removed component, or 404 if either id is unknown
+    isolated resource function delete assets/[string assetTag]/components/[string compId]()
+            returns Component|NotFoundError {
+        Component|error result = removeComponent(assetTag, compId);
+        if result is error {
+            return notFound(result.message());
+        }
+        return result;
+    }
+
+    // ------------------------------------------------------------------
+    // SCHEDULES
+    // ------------------------------------------------------------------
+
+    # Adds a maintenance, servicing, or booking schedule to an asset.
+    #
+    # + assetTag - Tag from the URL path
+    # + schedule - The schedule to add, from the request body
+    # + return - The added schedule, 404 if the asset is unknown, 409 if the id is taken
+    isolated resource function post assets/[string assetTag]/schedules(Schedule schedule)
+            returns Schedule|NotFoundError|ConflictError {
+        Schedule|error result = addSchedule(assetTag, schedule);
+        if result is error {
+            if !assetExists(assetTag) {
+                return notFound(result.message());
+            }
+            return conflictError(result.message());
+        }
+        return result;
+    }
+
+    # Replaces an existing schedule.
+    #
+    # + assetTag - Tag from the URL path
+    # + scheduleId - Schedule identifier from the URL path
+    # + updated - Replacement schedule, from the request body
+    # + return - The updated schedule, or 404 if either id is unknown
+    isolated resource function put assets/[string assetTag]/schedules/[string scheduleId](
+            Schedule updated) returns Schedule|NotFoundError {
+        Schedule|error result = updateSchedule(assetTag, scheduleId, updated);
+        if result is error {
+            return notFound(result.message());
+        }
+        return result;
+    }
+
+    # Removes a schedule from an asset.
+    #
+    # + assetTag - Tag from the URL path
+    # + scheduleId - Schedule identifier from the URL path
+    # + return - The removed schedule, or 404 if either id is unknown
+    isolated resource function delete assets/[string assetTag]/schedules/[string scheduleId]()
+            returns Schedule|NotFoundError {
+        Schedule|error result = removeSchedule(assetTag, scheduleId);
+        if result is error {
+            return notFound(result.message());
+        }
+        return result;
+    }
 }
