@@ -42,6 +42,13 @@ function testInvalidStatusFilterReturns400() returns error? {
     test:assertEquals(response.statusCode, 400);
 }
 
+@test:Config {}
+function testOverdueAssets() returns error? {
+    // The 3D printer is seeded with a schedule due 2026-06-01, in the past.
+    Asset[] overdue = check testClient->/assets/overdue;
+    test:assertTrue(overdue.length() >= 1, "Expected at least one overdue asset");
+}
+
 // ----------------------------------------------------------------------------
 // WRITE OPERATIONS
 // ----------------------------------------------------------------------------
@@ -94,4 +101,36 @@ function testLoanAndReturnCycle() returns error? {
 
     Asset returned = check testClient->/assets/[tag]/'return.post(());
     test:assertEquals(returned.status, AVAILABLE);
+}
+
+// ----------------------------------------------------------------------------
+// SUB-RESOURCES
+// ----------------------------------------------------------------------------
+
+@test:Config {}
+function testAddAndRemoveSchedule() returns error? {
+    string tag = "UNAM-RM-MTG-002";
+    Schedule schedule = {
+        scheduleId: "TEST-SCH-001",
+        'type: SERVICING,
+        dueDate: "2027-01-01",
+        description: "Added by the test suite."
+    };
+
+    Schedule added = check testClient->/assets/[tag]/schedules.post(schedule);
+    test:assertEquals(added.scheduleId, "TEST-SCH-001");
+
+    Schedule removed = check testClient->/assets/[tag]/schedules/["TEST-SCH-001"].delete();
+    test:assertEquals(removed.scheduleId, "TEST-SCH-001");
+}
+
+// ----------------------------------------------------------------------------
+// INSTITUTIONS
+// ----------------------------------------------------------------------------
+
+@test:Config {}
+function testCannotRemoveInstitutionWithAssets() returns error? {
+    // NUST still owns seeded assets, so removal must be refused.
+    http:Response response = check testClient->/institutions/["NUST"].delete();
+    test:assertEquals(response.statusCode, 409);
 }
