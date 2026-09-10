@@ -76,3 +76,22 @@ function testDuplicateAssetReturns409() returns error? {
     http:Response response = check testClient->/assets.post(duplicate);
     test:assertEquals(response.statusCode, 409);
 }
+
+// ----------------------------------------------------------------------------
+// LOANING — the state machine
+// ----------------------------------------------------------------------------
+
+@test:Config {}
+function testLoanAndReturnCycle() returns error? {
+    string tag = "NUST-LIB-LAP-014";
+
+    Asset loaned = check testClient->/assets/[tag]/loan.post(());
+    test:assertEquals(loaned.status, LOANED_OUT);
+
+    // Loaning it again must fail — it is no longer AVAILABLE.
+    http:Response conflictResponse = check testClient->/assets/[tag]/loan.post(());
+    test:assertEquals(conflictResponse.statusCode, 409);
+
+    Asset returned = check testClient->/assets/[tag]/'return.post(());
+    test:assertEquals(returned.status, AVAILABLE);
+}
