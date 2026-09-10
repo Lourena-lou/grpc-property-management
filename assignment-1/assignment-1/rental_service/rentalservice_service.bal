@@ -144,5 +144,175 @@ remote function create_users(stream<User, grpc:Error?> clientStream)
         failed_user_ids: failed
     };
 }
+remote function list_available_properties(ListAvailableRequest value)
+        returns stream<Property, error?>|error {
+
+    Property[] matches = findAvailableProperties(
+        value.location,
+        value.min_price,
+        value.max_price
+    );
+
+    log:printInfo(
+        string `Streaming ${matches.length()} available properties`
+    );
+
+    return matches.toStream();
+}
+
+remote function book_property(BookPropertyRequest value)
+        returns BookPropertyResponse|error {
+
+    if value.guest_id == "" {
+        return {
+            success: false,
+            message: "guest_id is required",
+            nights: 0,
+            estimated_cost: 0.0,
+            cart_size: 0
+        };
+    }
+
+    Property? property = getProperty(value.property_id);
+
+    if property is () {
+        return {
+            success: false,
+            message: string `Property '${value.property_id}' not found`,
+            nights: 0,
+            estimated_cost: 0.0,
+            cart_size: getCart(value.guest_id).length()
+        };
+    }
+
+    if property.status != AVAILABLE {
+        return {
+            success: false,
+            message: string `Property '${property.name}' is ${property.status}`,
+            nights: 0,
+            estimated_cost: 0.0,
+            cart_size: getCart(value.guest_id).length()
+        };
+    }
+
+    int|error nights = validateDates(
+        value.check_in,
+        value.check_out
+    );
+
+    if nights is error {
+        return {
+            success: false,
+            message: nights.message(),
+            nights: 0,
+            estimated_cost: 0.0,
+            cart_size: getCart(value.guest_id).length()
+        };
+    }
+
+    if !isFreeForDates(
+        value.property_id,
+        value.check_in,
+        value.check_out
+    ) {
+        return {
+            success: false,
+            message: string `'${property.name}' is already booked for those dates`,
+            nights: nights,
+            estimated_cost: 0.0,
+            cart_size: getCart(value.guest_id).length()
+        };
+    }
+
+    int cartSize = addToCart(value.guest_id, {
+        propertyId: value.property_id,
+        checkIn: value.check_in,
+        checkOut: value.check_out,
+        nights: nights
+    });
+
+    return {
+        success: true,
+        message: string `'${property.name}' added to cart. Confirm to finalise.`,
+        nights: nights,
+        estimated_cost: property.price_per_night * <float>nights,
+        cart_size: cartSize
+    };
+}
+
+remote function confirm_booking(ConfirmBookingRequest value)
+        returns ConfirmBookingResponse|error {
+
+    CartEntry[] cart = getCart(value.guest_id);
+
+    if cart.length() == 0 {
+        return {
+            success: false,
+            message: "Your cart is empty. Use book_property first.",
+            confirmed_bookings: [],
+            rejected_reasons: [],
+            grand_total: 0.0
+        };
+    }
+
+    Booking[] confirmed = [];
+    string[] rejected = [];
+    float grandTotal = 0.0;
+
+    foreach CartEntry entry in cart {
+
+        Property? property = getProperty(entry.propertyId);
+
+        if property is () {
+            rejected.push(
+                string `${entry.propertyId}: listing no longer exists`
+            );
+            continue;
+        }
+
+        if property.status != AVAILABLE {
+            rejected.push(
+                string `${property.name}: now ${property.status}`
+            );
+            continue;
+        }
+
+        Booking|error booking = commitBooking(
+            entry.propertyId,
+            value.guest_id,
+            entry.checkIn,
+            entry.checkOut,
+            entry.nights,
+            property.price_per_night
+        );
+
+        if booking is error {
+            rejected.push(
+                string `${property.name}: ${booking.message()}`
+            );
+            continue;
+        }
+
+        confirmed.push(booking);
+        grandTotal += booking.total_cost;
+    }
+
+    clearCart(value.guest_id);
+
+    log:printInfo(
+        string `confirm_booking for ${value.guest_id}: ` +
+        string `${confirmed.length()} confirmed, ${rejected.length()} rejected`
+    );
+
+    return {
+        success: confirmed.length() > 0,
+        message: confirmed.length() == 0
+            ? "No bookings could be confirmed"
+            : string `${confirmed.length()} booking(s) confirmed`,
+        confirmed_bookings: confirmed,
+        rejected_reasons: rejected,
+        grand_total: grandTotal
+    };
+}
 }
 
