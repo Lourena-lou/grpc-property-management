@@ -285,6 +285,262 @@ public class PropertyStream {
     }
 }
 
+public isolated client class RentalServiceAddPropertyResponseCaller {
+    private final grpc:Caller caller;
+
+    public isolated function init(grpc:Caller caller) {
+        self.caller = caller;
+    }
+
+    public isolated function getId() returns int {
+        return self.caller.getId();
+    }
+
+    isolated remote function sendAddPropertyResponse(AddPropertyResponse response) returns grpc:Error? {
+        return self.caller->send(response);
+    }
+
+    isolated remote function sendContextAddPropertyResponse(ContextAddPropertyResponse response) returns grpc:Error? {
+        return self.caller->send(response);
+    }
+
+    isolated remote function sendError(grpc:Error response) returns grpc:Error? {
+        return self.caller->sendError(response);
+    }
+
+    isolated remote function complete() returns grpc:Error? {
+        return self.caller->complete();
+    }
+
+    public isolated function isCancelled() returns boolean {
+        return self.caller.isCancelled();
+    }
+}
+
+public isolated client class RentalServiceSearchPropertyResponseCaller {
+    private final grpc:Caller caller;
+
+    public isolated function init(grpc:Caller caller) {
+        self.caller = caller;
+    }
+
+    public isolated function getId() returns int {
+        return self.caller.getId();
+    }
+
+    isolated remote function sendSearchPropertyResponse(SearchPropertyResponse response) returns grpc:Error? {
+        return self.caller->send(response);
+    }
+
+    isolated remote function sendContextSearchPropertyResponse(ContextSearchPropertyResponse response) returns grpc:Error? {
+        return self.caller->send(response);
+    }
+
+    isolated remote function sendError(grpc:Error response) returns grpc:Error? {
+        return self.caller->sendError(response);
+    }
+
+    isolated remote function complete() returns grpc:Error? {
+        return self.caller->complete();
+    }
+
+    public isolated function isCancelled() returns boolean {
+        return self.caller.isCancelled();
+    }
+}
+
+public isolated client class RentalServiceCreateUsersResponseCaller {
+    private final grpc:Caller caller;
+
+    public isolated function init(grpc:Caller caller) {
+        self.caller = caller;
+    }
+
+    public isolated function getId() returns int {
+        return self.caller.getId();
+    }
+
+    isolated remote function sendCreateUsersResponse(CreateUsersResponse response) returns grpc:Error? {
+        return self.caller->send(response);
+    }
+
+    isolated remote function sendContextCreateUsersResponse(ContextCreateUsersResponse response) returns grpc:Error? {
+        return self.caller->send(response);
+    }
+
+    isolated remote function sendError(grpc:Error response) returns grpc:Error? {
+        return self.caller->sendError(response);
+    }
+
+    isolated remote function complete() returns grpc:Error? {
+        return self.caller->complete();
+    }
+
+    public isolated function isCancelled() returns boolean {
+        return self.caller.isCancelled();
+    }
+}
+
+public isolated client class RentalServiceRemovePropertyResponseCaller {
+    private final grpc:Caller caller;
+
+    public isolated function init(grpc:Caller caller) {
+        self.caller = caller;
+    }
+
+    public isolated function getId() returns int {
+        return self.caller.getId();
+    }
+
+    isolated remote function sendRemovePropertyResponse(RemovePropertyResponse response) returns grpc:Error? {
+        return self.caller->send(response);
+    }
+
+    isolated remote function sendContextRemovePropertyResponse(ContextRemovePropertyResponse response) returns grpc:Error? {
+        return self.caller->send(response);
+    }
+
+    isolated remote function sendError(grpc:Error response) returns grpc:Error? {
+        return self.caller->sendError(response);
+    }
+
+    isolated remote function complete() returns grpc:Error? {
+        return self.caller->complete();
+    }
+
+    public isolated function isCancelled() returns boolean {
+        return self.caller.isCancelled();
+    }
+}
+
+public isolated client class RentalServiceConfirmBookingResponseCaller {
+    private final grpc:Caller caller;
+
+    public isolated function init(grpc:Caller caller) {
+        self.caller = caller;
+    }
+
+    public isolated function getId() returns int {
+        return self.caller.getId();
+    }
+
+    isolated remote function sendConfirmBookingResponse(ConfirmBookingResponse response) returns grpc:Error? {
+        return self.caller->send(response);
+    }
+
+    isolated remote function sendContextConfirmBookingResponse(ContextConfirmBookingResponse response) returns grpc:Error? {
+        return self.caller->send(response);
+    }
+
+    isolated remote function sendError(grpc:Error response) returns grpc:Error? {
+        return self.caller->sendError(response);
+    }
+
+    isolated remote function complete() returns grpc:Error? {
+        return self.caller->complete();
+    }
+
+    public isolated function isCancelled() returns boolean {
+        return self.caller.isCancelled();
+    }
+}
+
+public isolated client class RentalServiceUpdatePropertyResponseCaller {
+    private final grpc:Caller caller;
+
+    public isolated function init(grpc:Caller caller) {
+        self.caller = caller;
+    }
+
+    public isolated function getId() returns int {
+        return self.caller.getId();
+    }
+
+    isolated remote function sendUpdatePropertyResponse(UpdatePropertyResponse response) returns grpc:Error? {
+        return self.caller->send(response);
+    }
+
+    isolated remote function sendContextUpdatePropertyResponse(ContextUpdatePropertyResponse response) returns grpc:Error? {
+        return self.caller->send(response);
+    }
+
+    isolated remote function sendError(grpc:Error response) returns grpc:Error? {
+        return self.caller->sendError(response);
+    }
+
+    isolated remote function complete() returns grpc:Error? {
+        return self.caller->complete();
+    }
+
+    public isolated function isCancelled() returns boolean {
+        return self.caller.isCancelled();
+    }
+}
+
+public isolated client class RentalServicePropertyCaller {
+    private final grpc:Caller caller;
+
+    public isolated function init(grpc:Caller caller) {
+        self.caller = caller;
+    }
+
+    public isolated function getId() returns int {
+        return self.caller.getId();
+    }
+
+    isolated remote function sendProperty(Property response) returns grpc:Error? {
+        return self.caller->send(response);
+    }
+
+    isolated remote function sendContextProperty(ContextProperty response) returns grpc:Error? {
+        return self.caller->send(response);
+    }
+
+    isolated remote function sendError(grpc:Error response) returns grpc:Error? {
+        return self.caller->sendError(response);
+    }
+
+    isolated remote function complete() returns grpc:Error? {
+        return self.caller->complete();
+    }
+
+    public isolated function isCancelled() returns boolean {
+        return self.caller.isCancelled();
+    }
+}
+
+public isolated client class RentalServiceBookPropertyResponseCaller {
+    private final grpc:Caller caller;
+
+    public isolated function init(grpc:Caller caller) {
+        self.caller = caller;
+    }
+
+    public isolated function getId() returns int {
+        return self.caller.getId();
+    }
+
+    isolated remote function sendBookPropertyResponse(BookPropertyResponse response) returns grpc:Error? {
+        return self.caller->send(response);
+    }
+
+    isolated remote function sendContextBookPropertyResponse(ContextBookPropertyResponse response) returns grpc:Error? {
+        return self.caller->send(response);
+    }
+
+    isolated remote function sendError(grpc:Error response) returns grpc:Error? {
+        return self.caller->sendError(response);
+    }
+
+    isolated remote function complete() returns grpc:Error? {
+        return self.caller->complete();
+    }
+
+    public isolated function isCancelled() returns boolean {
+        return self.caller.isCancelled();
+    }
+}
+
 public type ContextUserStream record {|
     stream<User, error?> content;
     map<string|string[]> headers;
@@ -528,4 +784,3 @@ public enum PropertyType {
 public enum UserRole {
     USER_ROLE_UNSPECIFIED, HOST, GUEST
 }
-

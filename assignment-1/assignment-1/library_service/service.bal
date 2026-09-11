@@ -1,5 +1,20 @@
+// ============================================================================
+// service.bal — The HTTP/REST layer.
+//
+// This file does ONE job: translate between HTTP and the plain data logic in
+// store.bal. It decides status codes; store.bal decides what is true.
+//
+// Patterns follow the official guide:
+//   https://ballerina.io/learn/write-a-restful-api-with-ballerina
+//   https://ballerina.io/learn/by-example/http-query-parameter/
+// ============================================================================
 import ballerina/http;
 import ballerina/log;
+
+// ----------------------------------------------------------------------------
+// HELPERS
+// Small constructors so every endpoint returns errors in the same shape.
+// ----------------------------------------------------------------------------
 
 # Builds a 404 response.
 #
@@ -22,6 +37,11 @@ isolated function conflictError(string message) returns ConflictError =>
 isolated function badRequest(string message) returns BadRequestError =>
     {body: {errmsg: message}};
 
+// ----------------------------------------------------------------------------
+// THE SERVICE
+// Base path /library, so every endpoint below hangs off http://localhost:9090/library
+// ----------------------------------------------------------------------------
+
 service /library on new http:Listener(9090) {
 
     # Runs once when the listener starts. Loads the sample data so the client
@@ -32,12 +52,14 @@ service /library on new http:Listener(9090) {
     }
 
     // ------------------------------------------------------------------
-    // ASSETS — collection level (read + filters, create)
+    // ASSETS — collection level
     // ------------------------------------------------------------------
 
     # Lists assets, optionally filtered. All three filters are independent and
     # combinable; omitting them all returns every asset (the "global view").
     #
+    # Resource method arguments that are not path params are treated as QUERY
+    # PARAMETERS. Declaring them as `string?` makes them optional.
     #   GET /library/assets
     #   GET /library/assets?institution=University%20of%20Namibia
     #   GET /library/assets?institution=...&site=Main%20Campus%20-%20Library
@@ -51,11 +73,14 @@ service /library on new http:Listener(9090) {
             returns Asset[]|BadRequestError {
 
         if status is string {
+            // The query param arrives as a plain string. Validate it against
+            // the enum rather than trusting the caller.
             if status !is AssetStatus {
                 return badRequest(string `Invalid status '${status}'. ` +
                     "Expected one of: AVAILABLE, LOANED_OUT, OCCUPIED, " +
                     "UNDER_MAINTENANCE, DISPOSED");
             }
+            // Narrowed to AssetStatus here, so this is type-safe.
             Asset[] byStatus = findAssetsByStatus(status);
             return from Asset a in byStatus
                 where institution is () || a.institution == institution
@@ -84,14 +109,21 @@ service /library on new http:Listener(9090) {
 
     # Lists assets with at least one schedule whose due date has passed.
     #
+    # IMPORTANT: this literal path must not be shadowed by the `[string assetTag]`
+    # path parameter below. Ballerina prefers the literal segment, so
+    # `/assets/overdue` reaches here rather than being read as a tag.
+    #
     # + return - Assets with one or more overdue schedules
     isolated resource function get assets/overdue() returns Asset[] => findOverdueAssets();
 
     // ------------------------------------------------------------------
-    // ASSETS — single item (read, update, delete)
+    // ASSETS — single item
     // ------------------------------------------------------------------
 
     # Fetches one asset by tag.
+    #
+    # Square brackets declare a PATH PARAMETER: `assets/[string assetTag]`
+    # matches GET /library/assets/NUST-LIB-3DP-001
     #
     # + assetTag - Tag from the URL path
     # + return - The asset, or 404 if unknown
@@ -126,44 +158,6 @@ service /library on new http:Listener(9090) {
         Asset|error result = deleteAsset(assetTag);
         if result is error {
             return notFound(result.message());
-        }
-        return result;
-    }
-
-    // ------------------------------------------------------------------
-    // INSTITUTIONS
-    // ------------------------------------------------------------------
-
-    # Lists every registered institution.
-    #
-    # + return - All institutions
-    isolated resource function get institutions() returns Institution[] => getAllInstitutions();
-
-    # Registers a new institution.
-    #
-    # + institution - The institution to add, from the request body
-    # + return - The created institution, or 409 if the id is already in use
-    isolated resource function post institutions(Institution institution)
-            returns Institution|ConflictError {
-        Institution|error result = addInstitution(institution);
-        if result is error {
-            return conflictError(result.message());
-        }
-        return result;
-    }
-
-    # Removes an institution. Fails if assets are still assigned to it.
-    #
-    # + institutionId - Institution code from the URL path
-    # + return - The removed institution, 404 if unknown, or 409 if still in use
-    isolated resource function delete institutions/[string institutionId]()
-            returns Institution|NotFoundError|ConflictError {
-        Institution|error result = removeInstitution(institutionId);
-        if result is error {
-            if !institutionExists(institutionId) {
-                return notFound(result.message());
-            }
-            return conflictError(result.message());
         }
         return result;
     }
@@ -293,6 +287,44 @@ service /library on new http:Listener(9090) {
         Schedule|error result = removeSchedule(assetTag, scheduleId);
         if result is error {
             return notFound(result.message());
+        }
+        return result;
+    }
+
+    // ------------------------------------------------------------------
+    // INSTITUTIONS
+    // ------------------------------------------------------------------
+
+    # Lists every registered institution.
+    #
+    # + return - All institutions
+    isolated resource function get institutions() returns Institution[] => getAllInstitutions();
+
+    # Registers a new institution.
+    #
+    # + institution - The institution to add, from the request body
+    # + return - The created institution, or 409 if the id is already in use
+    isolated resource function post institutions(Institution institution)
+            returns Institution|ConflictError {
+        Institution|error result = addInstitution(institution);
+        if result is error {
+            return conflictError(result.message());
+        }
+        return result;
+    }
+
+    # Removes an institution. Fails if assets are still assigned to it.
+    #
+    # + institutionId - Institution code from the URL path
+    # + return - The removed institution, 404 if unknown, or 409 if still in use
+    isolated resource function delete institutions/[string institutionId]()
+            returns Institution|NotFoundError|ConflictError {
+        Institution|error result = removeInstitution(institutionId);
+        if result is error {
+            if !institutionExists(institutionId) {
+                return notFound(result.message());
+            }
+            return conflictError(result.message());
         }
         return result;
     }

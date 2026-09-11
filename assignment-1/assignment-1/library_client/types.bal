@@ -1,3 +1,28 @@
+// ============================================================================
+// types.bal — Data model for the Library & Resource Management System.
+//
+// Every record here mirrors the sample payload in the assignment brief.
+// Patterns follow the official guide:
+//   https://ballerina.io/learn/write-a-restful-api-with-ballerina
+//
+// NOTE: this file sits at the package root, so everything defined here is
+// automatically visible to service.bal and store.bal — same default module,
+// same namespace. No import needed between them.
+// (https://ballerina.io/learn/organize-ballerina-code/)
+//
+// DOC COMMENTS: `#` lines are Ballerina-Flavoured Markdown. Once a construct
+// has one, EVERY field/param/return must be documented or the compiler warns.
+// `bal doc` turns these into browsable HTML API docs.
+// ============================================================================
+import ballerina/http;
+
+// ----------------------------------------------------------------------------
+// ENUMS
+// The brief names exactly four asset states. Using an `enum` instead of a bare
+// `string` means an invalid status is a COMPILE error, not a runtime surprise.
+// An enum in Ballerina is shorthand for a union of string constants, so these
+// still serialise to plain JSON strings like "AVAILABLE".
+// ----------------------------------------------------------------------------
 
 # Lifecycle state of a library resource.
 public enum AssetStatus {
@@ -22,7 +47,13 @@ public enum WorkOrderStatus {
     CLOSED
 }
 
-# A single unit of work inside a work order.
+// ----------------------------------------------------------------------------
+// NESTED ENTITIES
+// Innermost first, because each one is used by the next.
+// All closed records ({| |}) — we want the compiler rejecting unknown fields.
+// ----------------------------------------------------------------------------
+
+# A single unit of work inside a work order, e.g. "replace screen".
 #
 # + taskId - Identifier, unique within the parent work order
 # + description - What the technician must do
@@ -31,12 +62,12 @@ public type Task record {|
     string description;
 |};
 
-# A repair or fault job raised against an asset.
+# A repair or fault job raised against an asset. Owns its own list of tasks.
 #
 # + orderId - Identifier, unique within the parent asset
-# + status - Current state of the job
+# + status - Current state of the job; defaults to `OPEN`
 # + description - Summary of the fault
-# + tasks - Sub-tasks required to complete the job
+# + tasks - Sub-tasks required to complete the job; defaults to empty
 public type WorkOrder record {|
     string orderId;
     WorkOrderStatus status = OPEN;
@@ -44,7 +75,7 @@ public type WorkOrder record {|
     Task[] tasks = [];
 |};
 
-# A physical part of a complex asset.
+# A physical part of a complex asset, e.g. the stepper motor in a 3D printer.
 #
 # + compId - Identifier, unique within the parent asset
 # + name - Human-readable part name
@@ -55,7 +86,7 @@ public type Component record {|
     string description;
 |};
 
-# A planned maintenance, servicing, or booking event.
+# A planned maintenance, servicing, or booking event for an asset.
 #
 # + scheduleId - Identifier, unique within the parent asset
 # + 'type - Category of the event
@@ -63,16 +94,36 @@ public type Component record {|
 # + description - What is scheduled to happen
 public type Schedule record {|
     string scheduleId;
+    // `type` is a RESERVED KEYWORD in Ballerina. The payload in the brief uses
+    // "type" as a JSON key, so we quote the identifier with a leading ' to use
+    // it anyway. The JSON field name is still plain "type" on the wire.
     ScheduleType 'type;
+    // ISO format "YYYY-MM-DD". Kept as a string to match the brief exactly.
+    // Handy consequence: ISO dates sort correctly as plain strings, so the
+    // overdue check is a simple string comparison — see store.bal.
     string dueDate;
     string description;
 |};
 
+// ----------------------------------------------------------------------------
+// THE ROOT ENTITY
+// ----------------------------------------------------------------------------
+
 # A library resource: a book, a laptop, a lab, or a meeting room.
 #
-# + assetTag - Globally unique identifier
-#
+# + assetTag - Globally unique identifier; the table key, hence `readonly`
+# + name - Human-readable resource name
+# + description - Details of the resource
+# + institution - Owning institution's full name
+# + site - Campus or site where the resource is held
+# + status - Current availability state; defaults to `AVAILABLE`
+# + dateAcquired - Acquisition date, ISO "YYYY-MM-DD"
+# + components - Constituent parts of a complex asset; defaults to empty
+# + schedules - Planned maintenance and booking events; defaults to empty
+# + workOrders - Open and historical repair jobs; defaults to empty
 public type Asset record {|
+    // `readonly` is REQUIRED for a field used as a table key. It guarantees the
+    // key can never change underneath the table's index.
     readonly string assetTag;
     string name;
     string description;
@@ -80,6 +131,7 @@ public type Asset record {|
     string site;
     AssetStatus status = AVAILABLE;
     string dateAcquired;
+    // Defaults let a client POST a minimal asset without these three arrays.
     Component[] components = [];
     Schedule[] schedules = [];
     WorkOrder[] workOrders = [];
@@ -87,9 +139,75 @@ public type Asset record {|
 
 # An institution registered in the ministry's listing.
 #
-# + institutionId - Short code, e.g. "NUST"
-# + name - Full institution name
+# + institutionId - Short code, e.g. "NUST"; the table key, hence `readonly`
+# + name - Full institution name, as it appears on assets
 public type Institution record {|
     readonly string institutionId;
     string name;
+|};
+
+// ----------------------------------------------------------------------------
+// UPDATE PAYLOAD
+// A PUT must not let the caller rewrite the primary key, so this is Asset
+// WITHOUT assetTag. `*Asset` would copy assetTag too, so we spell it out.
+// ----------------------------------------------------------------------------
+
+# Mutable fields of an asset, used as the body of a PUT. Deliberately excludes
+# `assetTag` so an update cannot change the primary key.
+#
+# + name - Replacement resource name
+# + description - Replacement description
+# + institution - Replacement owning institution
+# + site - Replacement campus or site
+# + status - Replacement availability state
+# + dateAcquired - Replacement acquisition date, ISO "YYYY-MM-DD"
+public type AssetUpdate record {|
+    string name;
+    string description;
+    string institution;
+    string site;
+    AssetStatus status;
+    string dateAcquired;
+|};
+
+// ----------------------------------------------------------------------------
+// TYPED HTTP ERROR RESPONSES
+//
+// This is the idiomatic Ballerina pattern from the official REST guide:
+// `*http:NotFound` includes the http:NotFound type, which makes this record a
+// SUBTYPE of it. Returning one of these from a resource function sets the HTTP
+// status code automatically — no manual response building, and the compiler
+// knows every status a resource can produce.
+// ----------------------------------------------------------------------------
+
+# Standard error body so every failure looks the same to the client.
+#
+# + errmsg - Human-readable explanation of what went wrong
+public type ErrorMsg record {|
+    string errmsg;
+|};
+
+# 404 — the requested asset, component, schedule, or work order does not exist.
+#
+# + body - Explanation of which resource was not found
+public type NotFoundError record {|
+    *http:NotFound;
+    ErrorMsg body;
+|};
+
+# 409 — duplicate `assetTag`, or an operation conflicting with current state
+# such as loaning an asset that is already `LOANED_OUT`.
+#
+# + body - Explanation of the conflict
+public type ConflictError record {|
+    *http:Conflict;
+    ErrorMsg body;
+|};
+
+# 400 — the request is malformed or violates a business rule.
+#
+# + body - Explanation of why the request was rejected
+public type BadRequestError record {|
+    *http:BadRequest;
+    ErrorMsg body;
 |};

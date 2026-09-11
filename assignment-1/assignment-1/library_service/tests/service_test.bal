@@ -1,5 +1,11 @@
 // ============================================================================
 // service_test.bal — Tests for the library service.
+//
+// `bal test` starts the service automatically, runs these against it, then
+// stops it. See https://ballerina.io/learn/test-ballerina-code/write-tests/
+//
+// Note the tests share the SAME in-memory store, so order matters where one
+// test mutates state another reads. Keep each test's mutations self-contained.
 // ============================================================================
 import ballerina/http;
 import ballerina/test;
@@ -13,6 +19,7 @@ final http:Client testClient = check new ("http://localhost:9090/library");
 @test:Config {}
 function testGetAllAssets() returns error? {
     Asset[] assets = check testClient->/assets;
+    // Three assets are seeded at startup.
     test:assertTrue(assets.length() >= 3, "Expected at least the 3 seeded assets");
 }
 

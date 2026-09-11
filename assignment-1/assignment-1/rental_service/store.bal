@@ -1,6 +1,27 @@
+// ============================================================================
+// store.bal — In-memory state and business logic for the Rental system.
+//
+// The brief requires the server to handle CONCURRENT requests, so every table
+// is `isolated` and every access sits inside a `lock`. Same discipline as
+// Question 1: values crossing the lock boundary are cloned, never shared.
+//
+// Types like `Property`, `User`, and `Booking` come from rental_pb.bal, which
+// was generated from rental.proto — do not redefine them here.
+// ============================================================================
 import ballerina/time;
 
+// ----------------------------------------------------------------------------
+// CART ENTRY
+// Not a proto message: the cart is server-side state, never sent over the wire
+// in this shape. Defining it here keeps it out of the contract.
+// ----------------------------------------------------------------------------
 
+# One pending booking request held in a guest's cart, awaiting confirmation.
+#
+# + propertyId - Property the guest wants
+# + checkIn - Requested arrival date, ISO "YYYY-MM-DD"
+# + checkOut - Requested departure date, ISO "YYYY-MM-DD"
+# + nights - Number of nights between the two dates
 public type CartEntry record {|
     string propertyId;
     string checkIn;
@@ -8,6 +29,20 @@ public type CartEntry record {|
     int nights;
 |};
 
+// ----------------------------------------------------------------------------
+// STATE
+// ----------------------------------------------------------------------------
+
+// NOTE ON MAPS vs TABLES
+// Question 1 used `table<Asset> key(assetTag)`. That is impossible here: a
+// table's key field must be `readonly`, and these record types are GENERATED
+// from rental.proto with plain mutable fields. Editing rental_pb.bal is not an
+// option — regenerating the stubs would wipe the change.
+//
+// So we use `map<T>` keyed by the same id, which the brief explicitly allows.
+// The API is nearly identical: indexing, `hasKey`, and `removeIfHasKey` all
+// behave the same, and query expressions iterate a map's values. The only
+// difference is insertion — `m[key] = value` instead of `t.add(value)`.
 
 # All registered accommodation listings, keyed by property id.
 isolated map<Property> propertyTable = {};
@@ -26,7 +61,13 @@ isolated map<CartEntry[]> guestCarts = {};
 isolated int propertyCounter = 0;
 isolated int bookingCounter = 0;
 
+// ----------------------------------------------------------------------------
+// ID GENERATION
+// ----------------------------------------------------------------------------
 
+# Generates the next property id, e.g. "PROP-001".
+#
+# + return - A unique property identifier
 isolated function nextPropertyId() returns string {
     lock {
         propertyCounter += 1;
@@ -34,7 +75,9 @@ isolated function nextPropertyId() returns string {
     }
 }
 
-
+# Generates the next booking id, e.g. "BKG-001".
+#
+# + return - A unique booking identifier
 isolated function nextBookingId() returns string {
     lock {
         bookingCounter += 1;
@@ -42,6 +85,107 @@ isolated function nextBookingId() returns string {
     }
 }
 
+// ----------------------------------------------------------------------------
+// DATE HELPERS
+// ISO "YYYY-MM-DD" strings compare chronologically as plain strings, which the
+// overlap check relies on. Counting nights needs real arithmetic, so those
+// dates are parsed into `time:Utc`.
+// ----------------------------------------------------------------------------
+
+# Counts nights between two ISO dates.
+#
+# + checkIn - Arrival date, ISO "YYYY-MM-DD"
+# + checkOut - Departure date, ISO "YYYY-MM-DD"
+# + return - Number of nights, or an error if either date is unparseable
+public isolated function nightsBetween(string checkIn, string checkOut)
+        returns int|error {
+    // time:utcFromString needs a full RFC 3339 timestamp, so pad to midnight.
+    time:Utc arrival = check time:utcFromString(checkIn + "T00:00:00Z");
+    time:Utc departure = check time:utcFromString(checkOut + "T00:00:00Z");
+    decimal seconds = time:utcDiffSeconds(departure, arrival);
+    return <int>(seconds / 86400d);
+}
+
+# Tests whether two date ranges overlap.
+#
+# Ranges are half-open: a stay ending on the 5th does NOT clash with one
+# starting on the 5th, because the guest checks out before the next checks in.
+# Two ranges overlap when each starts before the other ends.
+#
+# + startA - Start of the first range
+# + endA - End of the first range
+# + startB - Start of the second range
+# + endB - End of the second range
+# + return - `true` if the ranges overlap
+public isolated function datesOverlap(string startA, string endA,
+        string startB, string endB) returns boolean {
+    return startA < endB && startB < endA;
+}
+
+# Validates a requested date range.
+#
+# + checkIn - Arrival date, ISO "YYYY-MM-DD"
+# + checkOut - Departure date, ISO "YYYY-MM-DD"
+# + return - The night count, or an error explaining why the range is invalid
+public isolated function validateDates(string checkIn, string checkOut)
+        returns int|error {
+    if checkIn == "" || checkOut == "" {
+        return error("Both check-in and check-out dates are required");
+    }
+    if checkOut <= checkIn {
+        return error(string `Check-out (${checkOut}) must be after check-in (${checkIn})`);
+    }
+    int|error nights = nightsBetween(checkIn, checkOut);
+    if nights is error {
+        return error("Dates must be in YYYY-MM-DD format");
+    }
+    if nights <= 0 {
+        return error("Stay must be at least one night");
+    }
+    return nights;
+}
+
+// ----------------------------------------------------------------------------
+// USERS
+// ----------------------------------------------------------------------------
+
+# Registers a user. Fails if the id is already taken.
+#
+# + user - The user to register
+# + return - A copy of the stored user, or an error if the id is in use
+public isolated function addUser(User user) returns User|error {
+    lock {
+        User stored = user.clone();
+        if stored.user_id == "" {
+            return error("user_id is required");
+        }
+        if userTable.hasKey(stored.user_id) {
+            return error(string `User '${stored.user_id}' already exists`);
+        }
+        userTable[stored.user_id] = stored;
+        return stored.clone();
+    }
+}
+
+# Looks up a user.
+#
+# + userId - The id to look up
+# + return - A copy of the user, or `()` if unknown
+public isolated function getUser(string userId) returns User? {
+    lock {
+        User? user = userTable[userId];
+        return user.clone();
+    }
+}
+
+// ----------------------------------------------------------------------------
+// PROPERTIES
+// ----------------------------------------------------------------------------
+
+# Registers a new listing and assigns it an id.
+#
+# + request - The listing details supplied by the host
+# + return - A copy of the stored property, or an error if the request is invalid
 public isolated function addProperty(AddPropertyRequest request)
         returns Property|error {
     if request.host_id == "" {
@@ -177,8 +321,15 @@ public isolated function findAvailableProperties(string location, float minPrice
         return matches.clone();
     }
 }
-# + propertyId - Property to check
-# + checkIn - Proposed arrival date
+
+// ----------------------------------------------------------------------------
+// AVAILABILITY
+// ----------------------------------------------------------------------------
+
+# Checks a property's confirmed bookings for a clash with the given dates.
+#
+# + propertyId - Property to check  
+# + checkIn - Proposed arrival date  
 # + checkOut - Proposed departure date
 # + return - `true` if no confirmed booking overlaps the range
 public isolated function isFreeForDates(string propertyId, string checkIn,
